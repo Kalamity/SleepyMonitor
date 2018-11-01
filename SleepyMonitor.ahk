@@ -16,20 +16,15 @@ FileCreateDir, %A_Temp%\SleepyMonitor
 FileInstall, Resources\Sleep.ico, %A_Temp%\SleepyMonitor\Sleep.ico, 1
 Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Sleep.ico, 1, 1
 
-GUID_MONITOR_POWER_ON:="02731015-4510-4526-99e6-e5a17ebd1aea"
-GUID_CONSOLE_DISPLAY_STATE:="6fe69556-704a-47a0-8f24-c28d936fda47"
-
 varSetCapacity(newGUID,16,0)
 if a_OSVersion in WIN_8,WIN_8.1,WIN_10
-    dllCall("Rpcrt4\UuidFromString", "Str", GUID_CONSOLE_DISPLAY_STATE, "UInt", &newGUID)
+    dllCall("Rpcrt4\UuidFromString", "Str", GUID_CONSOLE_DISPLAY_STATE := "6fe69556-704a-47a0-8f24-c28d936fda47", "UInt", &newGUID)
 else
-    dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON, "UInt", &newGUID)
+    dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON := "02731015-4510-4526-99e6-e5a17ebd1aea", "UInt", &newGUID)
 rhandle := dllCall("RegisterPowerSettingNotification", "UInt", a_scriptHwnd, "Str", strGet(&newGUID), "Int", 0, "Ptr")
 onMessage(0x218, "WM_POWERBROADCAST")
 
-
 gosub, ReadSettings
-
 SetTimer, IdleCheck, 5000
 
 Menu, tray, NoStandard
@@ -131,7 +126,7 @@ DisableForHours006:
 ; disabledMenuLabelClicked is true (will hold the label name) 
 ; when ever a checkmark is applied to these menu items
 
-; If clicks item with was previously clicked (and it hasn't expired)
+; If clicked item was previously clicked (and it hasn't expired)
 ; re-enable monitoring and remove checkmark
 if (A_ThisLabel = disabledMenuLabelClicked)
 {
@@ -220,17 +215,17 @@ GUI, Destroy
 return 
 
 ReadSettings:
-RegRead, enableMonitorStandby, HKEY_CURRENT_USER, Software\SleepyMonitor, enableMonitorStandby
+RegRead, enableMonitorStandby, HKEY_CURRENT_USER, Software\SleepyMonitor, EnableMonitorStandby
 enableMonitorStandby := (ErrorLevel ? False : enableMonitorStandby)
-RegRead, monOffMins, HKEY_CURRENT_USER, Software\SleepyMonitor, monOffMins
+RegRead, monOffMins, HKEY_CURRENT_USER, Software\SleepyMonitor, MonOffMins
 monOffMins := (ErrorLevel ? 25 : monOffMins)
-RegRead, enableScreenSaver, HKEY_CURRENT_USER, Software\SleepyMonitor, enableScreenSaver
+RegRead, enableScreenSaver, HKEY_CURRENT_USER, Software\SleepyMonitor, EnableScreenSaver
 enableScreenSaver := (ErrorLevel ? False : enableScreenSaver)
-RegRead, saverMins, HKEY_CURRENT_USER, Software\SleepyMonitor, saverMins
+RegRead, saverMins, HKEY_CURRENT_USER, Software\SleepyMonitor, SaverMins
 saverMins := (ErrorLevel ? 15 : saverMins)
-RegRead, preWarning, HKEY_CURRENT_USER, Software\SleepyMonitor, preWarning
+RegRead, preWarning, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarning
 preWarning := (ErrorLevel ? False : preWarning)
-RegRead, preWarningSeconds, HKEY_CURRENT_USER, Software\SleepyMonitor, preWarningSeconds
+RegRead, preWarningSeconds, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarningSeconds
 preWarningSeconds := (ErrorLevel ? 10 : preWarningSeconds)
 RegRead, RunOnStartUp, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor
 if ErrorLevel
@@ -246,12 +241,9 @@ return
 SaveSettings:
 GUI, Submit
 GUI, Destroy
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, EnableMonitorStandby, %enableMonitorStandby%
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, MonOffMins, %monOffMins%
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, EnableScreenSaver, %enableScreenSaver%
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, SaverMins, %saverMins%
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarning, %preWarning%
-RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, preWarningSeconds, %preWarningSeconds%
+
+for k, varName in StrSplit("EnableMonitorStandby|MonOffMins|EnableScreenSaver|SaverMins|PreWarning|PreWarningSeconds", "|")
+	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, %varName%, % %varName%
 
 if RunOnStartUp
 	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
