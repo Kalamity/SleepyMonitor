@@ -14,14 +14,14 @@ global newGUID:= ""
 
 FileCreateDir, %A_Temp%\SleepyMonitor 
 FileInstall, Resources\Sleep.ico, %A_Temp%\SleepyMonitor\Sleep.ico, 1
+FileInstall, Resources\Disabled.ico, %A_Temp%\SleepyMonitor\Disabled.ico, 1
 Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Sleep.ico, 1, 1
 
 varSetCapacity(newGUID,16,0)
 if a_OSVersion in WIN_8,WIN_8.1,WIN_10
-    dllCall("Rpcrt4\UuidFromString", "Str", GUID_CONSOLE_DISPLAY_STATE := "6fe69556-704a-47a0-8f24-c28d936fda47", "UInt", &newGUID)
-else
-    dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON := "02731015-4510-4526-99e6-e5a17ebd1aea", "UInt", &newGUID)
-rhandle := dllCall("RegisterPowerSettingNotification", "UInt", a_scriptHwnd, "Str", strGet(&newGUID), "Int", 0, "Ptr")
+    dllCall("Rpcrt4\UuidFromString", "Str", GUID_CONSOLE_DISPLAY_STATE := "6fe69556-704a-47a0-8f24-c28d936fda47", "Ptr", &newGUID)
+else dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON := "02731015-4510-4526-99e6-e5a17ebd1aea", "Ptr", &newGUID)
+rhandle := dllCall("RegisterPowerSettingNotification", "Ptr", A_scriptHwnd, "Str", strGet(&newGUID), "UInt", 0, "Ptr")
 onMessage(0x218, "WM_POWERBROADCAST")
 
 gosub, ReadSettings
@@ -29,12 +29,12 @@ SetTimer, IdleCheck, 5000
 
 Menu, tray, NoStandard
 Menu, tray, add  ; Creates a separator line.
-Menu, tray, add, Settings, SettingsGUI ; label cant have spaces
-Menu, tray, Default, Settings 
+Menu, tray, add, &Settings, SettingsGUI ; label cant have spaces
+Menu, tray, Default, &Settings 
 Menu, tray, add
-Menu, tray, add, Monitor Standby, MonitorStandby 
+Menu, tray, add, &Monitor Standby, MonitorStandby 
 Menu, tray, add  
-Menu, tray, add, Screen Saver, LaunchScreenSaver 
+Menu, tray, add, &Screen Saver, LaunchScreenSaver 
 
 aMenuName := { 	"DisableFor015": "15 Mins", "DisableFor030": "30 Mins", "DisableFor060":  "60 Mins"
 			, 	"DisableFor090": "90 Mins", "DisableForHours002": "2 Hrs", "DisableForHours004": "4 Hrs", "DisableForHours006": "6 Hrs" }
@@ -60,7 +60,6 @@ preWarning_TT := "A system alert sound is made before starting the screen saver.
 preWarningSeconds_TT := PreWarningSecondsEditDummy_TT := "The alert will sound this many seconds before the screen saver starts."
 enableMonitorStandby_TT := "Allows the monitor to be put into low-power/standby mode."
 monOffMins_TT := MonOffMinsEditDummy_TT := "The monitor will be placed into low-power state after the user has been idle for this period of time."
-
 return
 
 ExitRoutine:
@@ -69,12 +68,12 @@ ExitApp
 return 
 
 IdleCheck:
-if (A_TimeIdle / 60 / 1000 >= saverMins && isMonitorOn && !isScreenSaverRunning())
+if (((A_TimeIdle / 1000) + (preWarning ? preWarningSeconds : 0)) / 60 >= saverMins && isMonitorOn && !isScreenSaverRunning())
 {
 	if (preWarning)
 	{
-		sleep % preWarningSeconds * 1000
-		if (A_TimeIdle / 60 / 1000 <= saverMins) 
+		sleep % preWarningSeconds * 1000 + 250
+		if (A_TimeIdle / 60 / 1000 < saverMins) 
 			return
 	}
 	startScreenSaver()
@@ -82,7 +81,6 @@ if (A_TimeIdle / 60 / 1000 >= saverMins && isMonitorOn && !isScreenSaverRunning(
 
 if (A_TimeIdle / 60 / 1000 >= monOffMins && isMonitorOn)
 	monitorStandby()
-
 return
 
 LaunchScreenSaver:
@@ -103,6 +101,7 @@ if isDisabledUntilRestart := !isDisabledUntilRestart
 	settimer, reenableMonitoring, off
 	SetTimer, UpdateTimeRemaing, Off
 	settimer, IdleCheck, off
+	Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Disabled.ico, 1, 1
 	Menu, Tray, Tip, Disabled until app restart....
 	if disabledMenuLabelClicked
 	{
@@ -111,7 +110,6 @@ if isDisabledUntilRestart := !isDisabledUntilRestart
 	}
 }
 else gosub ReenableMonitoring
-
 return 
 
 DisableFor001:
@@ -144,6 +142,7 @@ disabledMenuLabelClicked := A_ThisLabel
 settimer, IdleCheck, off
 settimer, ReenableMonitoring, % - 1 * 60 * 1000 * (disableForMins := SubStr(A_ThisLabel, StrLen(A_ThisLabel) - 2) * (InStr(A_ThisLabel, "Hours") ? 60 : 1))
 SetTimer, UpdateTimeRemaing, 60000 ; update every minute
+Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Disabled.ico, 1, 1
 gosub UpdateTimeRemaing
 return
 
@@ -155,6 +154,7 @@ disabledMenuLabelClicked := ""
 SetTimer, IdleCheck, 5000
 SetTimer, UpdateTimeRemaing, Off
 Menu, Tray, Tip, SleepyMonitor
+Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Sleep.ico, 1, 1
 return 
 
 UpdateTimeRemaing:
@@ -193,9 +193,9 @@ Gui, Add, GroupBox, xs  y+35 w300 h55 section, Misc
 Gui, Add, Checkbox, xs+15 yp+25 vRunOnStartUp Checked%RunOnStartUp%, Run on startup
 Gui, add, button, xs ys+85 w54 h25 gSaveSettings, Save
 Gui, add, button, x+40 yp w54 h25 gGUIClose, Cancel
+Gui, Add, text, x+100 yp+12, Ver: %version%
 OnMessage(0x200, "OptionsGUITooltips")
 Gui, Show, w320 h350
-
 return
 
 GUIControlHandler:
@@ -228,14 +228,8 @@ preWarning := (ErrorLevel ? False : preWarning)
 RegRead, preWarningSeconds, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarningSeconds
 preWarningSeconds := (ErrorLevel ? 10 : preWarningSeconds)
 RegRead, RunOnStartUp, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor
-if ErrorLevel
-	RunOnStartUp := false 
-else 
-{
-	if (A_ScriptFullPath != RunOnStartUp) 	; user Moved the script
-		RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
-	RunOnStartUp := true
-}
+if (RunOnStartUp := !ErrorLevel) && RunOnStartUp != A_ScriptFullPath ; user Moved the script
+	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
 return 
 
 SaveSettings:
@@ -249,12 +243,6 @@ if RunOnStartUp
 	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
 else RegDelete, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor
 return 
-
-
-
-
-
-
 
 
 
@@ -295,18 +283,15 @@ monitorStandby()
 	SendMessage, % WM_SYSCOMMAND := 0x0112, SC_MONITORPOWER := 0xF170, 2,, Program Manager
 }
 
-
 ; Masonjar13
 WM_POWERBROADCAST(wParam,lParam)
 {
     static PBT_POWERSETTINGCHANGE := 0x8013
-    soundplay *64
+
     if (wParam = PBT_POWERSETTINGCHANGE && subStr(strGet(lParam), 1, strLen(strGet(lParam)) - 1) = strGet(&newGUID))
             isMonitorOn := numGet(lParam+0,20,"UInt") ? true : false 
     return
 }
-
-
 
 OptionsGUITooltips()
 {
