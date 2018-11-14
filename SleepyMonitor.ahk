@@ -1,13 +1,7 @@
-; Currently when the computer resumes from sleep the script will
-; quickly run the screen saver or place the monitor into standby
-; as the user has still been idle.
-; Perhaps should monitor resume power messages and reset idle time.
-; Not sure if better to leave it the way it is now though.
-
 #SingleInstance force
 #Persistent
 SetWorkingDir %A_ScriptDir%
-version := "1.00"
+version := "1.01"
 
 global isMonitorOn := True ; on
 global newGUID:= ""
