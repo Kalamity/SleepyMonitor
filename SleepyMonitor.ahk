@@ -56,8 +56,8 @@ Menu, Tray, Tip, SleepyMonitor
 
 enableScreenSaver_TT := "Enables the screen saver.`nIt starts after the specified delay."
 saverMins_TT := SaverMinsEditDummy_TT := "The screen saver will start once the user has been idle for this period of time."
-preWarning_TT := "A system alert sound is made before starting the screen saver.`nThe delay setting is adjustable."
-preWarningSeconds_TT := PreWarningSecondsEditDummy_TT := "The alert will sound this many seconds before the screen saver starts."
+preWarning_TT := "A system alert sound is made before starting the screen saver or placing the monitor into standby.`nNote: No sound is made if the screen saver is already running."
+preWarningSeconds_TT := PreWarningSecondsEditDummy_TT := "The alert will sound this many seconds before the screen saver starts or before the monitor is placed into standby."
 enableMonitorStandby_TT := "Allows the monitor to be put into low-power/standby mode."
 monOffMins_TT := MonOffMinsEditDummy_TT := "The monitor will be placed into low-power state after the user has been idle for this period of time."
 return
@@ -68,19 +68,20 @@ ExitApp
 return 
 
 IdleCheck:
-if (((A_TimeIdle / 1000) + (preWarning ? preWarningSeconds : 0)) / 60 >= saverMins && isMonitorOn && !isScreenSaverRunning())
+if (enableScreenSaver && (((A_TimeIdle / 1000) + (preWarning ? preWarningSeconds : 0)) / 60 >= saverMins && isMonitorOn && !isScreenSaverRunning()))
 {
-	if (preWarning)
-	{
-		sleep % preWarningSeconds * 1000 + 250
-		if (A_TimeIdle / 60 / 1000 < saverMins) 
-			return
-	}
+	if (preWarning && !warnCheckIsIdle(preWarningSeconds, saverMins))
+		return
 	startScreenSaver()
 }
 
-if (A_TimeIdle / 60 / 1000 >= monOffMins && isMonitorOn)
+; Only do the prewarning if screen saver isnt running
+if (enableMonitorStandby && (((A_TimeIdle / 1000) + (preWarning && !isScreenSaverRunning() ? preWarningSeconds : 0)) / 60 >= monOffMins && isMonitorOn))
+{
+	if (preWarning && !isScreenSaverRunning() && !warnCheckIsIdle(preWarningSeconds, monOffMins))
+		return
 	monitorStandby()
+}
 return
 
 LaunchScreenSaver:
@@ -88,6 +89,14 @@ MonitorStandby:
 sleep 2000
 (A_ThisLabel = "LaunchScreenSaver") ? startScreenSaver() : monitorStandby()
 return 
+
+; returns true if still idle
+warnCheckIsIdle(preWarningSeconds, idleThreashold)
+{
+	soundplay *-1
+	sleep % preWarningSeconds * 1000 + 250
+	return (A_TimeIdle / 60 / 1000 >= idleThreashold)
+}
 
 
 DisableUntilAppRestart:
@@ -170,24 +179,27 @@ IfWinExist
 	Return 									
 }
 
-Gui, Add, GroupBox,  y+20 w300 h120 section, Screen Saver 
+Gui, Add, GroupBox,  y+20 w300 h60 section, Screen Saver 
 Gui, Add, Checkbox, xs+15 yp+25 vEnableScreenSaver Checked%enableScreenSaver% gGUIControlHandler, Enable
 
 			
 Gui, Add, Text, xs+170 ys+25, Delay Mins:
 Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vSaverMinsEditDummy Disabled" !enableScreenSaver 
-Gui, Add, UpDown,  Range0-1000 vsaverMins, %saverMins%	
+Gui, Add, UpDown,  Range1-1000 vSaverMins, %saverMins%	
 
-Gui, Add, Checkbox, % "xs+15 y+30 vPreWarning Checked" preWarning " gGUIControlHandler Disabled" !enableScreenSaver, Enable warning
-Gui, Add, Text, xs+170 yp, Delay Secs:
-Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vPreWarningSecondsEditDummy Disabled" (!preWarning || !enableScreenSaver)
-Gui, Add, UpDown,  Range0-1000 vPreWarningSeconds, %preWarningSeconds%
+
 
 Gui, Add, GroupBox, xs  y+35 w300 h60 section, Screen Standby
 Gui, Add, Checkbox, xs+15 yp+25 vEnableMonitorStandby Checked%enableMonitorStandby% gGUIControlHandler, Enable
 Gui, Add, Text, xs+170 ys+25, Delay Mins:
 Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vMonOffMinsEditDummy Disabled" !enableMonitorStandby
-Gui, Add, UpDown,  Range0-1000 vMonOffMins, %monOffMins%	
+Gui, Add, UpDown,  Range1-1000 vMonOffMins, %monOffMins%	
+
+Gui, Add, GroupBox, xs  y+35 w300 h60 section, Warning
+Gui, Add, Checkbox, % "xs+15 yp+25 vPreWarning Checked" preWarning " gGUIControlHandler Disabled" (!enableScreenSaver && !enableMonitorStandby), Enable warning
+Gui, Add, Text, xs+170 yp, Delay Secs:
+Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vPreWarningSecondsEditDummy Disabled" (!preWarning || (!enableScreenSaver && !enableMonitorStandby))
+Gui, Add, UpDown,  Range1-1000 vPreWarningSeconds, %preWarningSeconds%
 
 Gui, Add, GroupBox, xs  y+35 w300 h55 section, Misc
 Gui, Add, Checkbox, xs+15 yp+25 vRunOnStartUp Checked%RunOnStartUp%, Run on startup
@@ -195,15 +207,16 @@ Gui, add, button, xs ys+85 w54 h25 gSaveSettings, Save
 Gui, add, button, x+40 yp w54 h25 gGUIClose, Cancel
 Gui, Add, text, x+100 yp+12, Ver: %version%
 OnMessage(0x200, "OptionsGUITooltips")
-Gui, Show, w320 h350
+Gui, Show, w320 h385
 return
 
 GUIControlHandler:
 GuiControlGet, screenSaverChecked,, enableScreenSaver 
+GuiControlGet, monitorStandbyChecked,, enableMonitorStandby 
 GuiControlGet, preWarningChecked,, preWarning 
 GuiControl, % "Disable" !screenSaverChecked, SaverMinsEditDummy
-GuiControl, % "Disable" !screenSaverChecked, PreWarning
-GuiControl, % "Disable" !(preWarningChecked && screenSaverChecked), PreWarningSecondsEditDummy
+GuiControl, % "Disable" !(screenSaverChecked || monitorStandbyChecked), PreWarning
+GuiControl, % "Disable" !(preWarningChecked && (screenSaverChecked || monitorStandbyChecked)), PreWarningSecondsEditDummy
 
 GuiControlGet, monitorStandbyChecked,, enableMonitorStandby 
 GuiControl, % "Disable" !monitorStandbyChecked, MonOffMinsEditDummy
@@ -284,14 +297,27 @@ monitorStandby()
 }
 
 ; Masonjar13
-WM_POWERBROADCAST(wParam,lParam)
+WM_POWERBROADCAST(wParam, lParam)
 {
-    static PBT_POWERSETTINGCHANGE := 0x8013
+    static PBT_POWERSETTINGCHANGE := 0x8013, PBT_APMRESUMESUSPEND := 0x7
 
     if (wParam = PBT_POWERSETTINGCHANGE && subStr(strGet(lParam), 1, strLen(strGet(lParam)) - 1) = strGet(&newGUID))
             isMonitorOn := numGet(lParam+0,20,"UInt") ? true : false 
-    return
+    ; PBT_APMRESUMESUSPEND
+    ; Computer has woken up as a response to user input. 
+    ; Or the system has originally woken up automatically, but the user has just made an input
+    if (wParam = PBT_APMRESUMESUSPEND)
+    {
+		; When the user wakes the computer up the screen saver will start (or monitor standby) if it was previously running as 
+		; A_TimeIdle is still above the threashold - the user pressing a key to wake the computer doesn't reset this value
+		; therefore move the mouse slightly to prevent this.
+    	MouseMove, 1,0,, R
+		MouseMove, -1,0,, R
+    }
+
+    return true 
 }
+
 
 OptionsGUITooltips()
 {
