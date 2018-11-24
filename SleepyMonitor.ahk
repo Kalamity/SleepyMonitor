@@ -19,7 +19,7 @@ rhandle := dllCall("RegisterPowerSettingNotification", "Ptr", A_scriptHwnd, "Str
 onMessage(0x218, "WM_POWERBROADCAST")
 
 gosub, ReadSettings
-SetTimer, IdleCheck, 5000
+SetTimer, IdleCheck, 4000
 
 Menu, tray, NoStandard
 Menu, tray, add  ; Creates a separator line.
@@ -62,21 +62,54 @@ ExitApp
 return 
 
 IdleCheck:
-if (enableScreenSaver && (((A_TimeIdle / 1000) + (preWarning ? preWarningSeconds : 0)) / 60 >= saverMins && isMonitorOn && !isScreenSaverRunning()))
+
+if !isMonitorOn
+	return 
+
+if (enableScreenSaver)
 {
-	if (preWarning && !warnCheckIsIdle(preWarningSeconds, saverMins))
-		return
-	startScreenSaver()
+	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning())
+	{
+		if waitForInput(preWarningSeconds + .250)
+			return
+	}
+
+	if (A_TimeIdle >= saverMS && !isScreenSaverRunning())
+	{
+		startScreenSaver()
+		sleep 5000 ; ensure screen saver has started before next idleCheck run - prevents second warning
+	}
 }
 
-; Only do the prewarning if screen saver isnt running
-if (enableMonitorStandby && (((A_TimeIdle / 1000) + (preWarning && !isScreenSaverRunning() ? preWarningSeconds : 0)) / 60 >= monOffMins && isMonitorOn))
+
+if (enableMonitorStandby)
 {
-	if (preWarning && !isScreenSaverRunning() && !warnCheckIsIdle(preWarningSeconds, monOffMins))
-		return
-	monitorStandby()
+	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning())
+	{
+		if waitForInput(preWarningSeconds + .250)
+			return
+	}
+	if (A_TimeIdle >= monOffMS)
+	{
+		monitorStandby()
+		sleep 5000
+	}
 }
-return
+return 
+
+waitForInput(timeOut)
+{
+	startIdle := A_TimeIdle
+	soundplay *-1
+	loop 
+	{
+		if (A_TimeIdle < startIdle)
+			return true
+		sleep 200
+	} until (A_TimeIdle - startIdle >= timeOut * 1000)	
+	return false
+}
+
 
 LaunchScreenSaver:
 MonitorStandby:
@@ -237,6 +270,11 @@ preWarningSeconds := (ErrorLevel ? 10 : preWarningSeconds)
 RegRead, RunOnStartUp, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor
 if (RunOnStartUp := !ErrorLevel) && RunOnStartUp != A_ScriptFullPath ; user Moved the script
 	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
+calculateVars:
+saverMS := saverMins * 60 * 1000
+saverWarningMS := saverMS - preWarningSeconds * 1000
+monOffMS := monOffMins * 60 * 1000
+monOffWarningMS := monOffMS - preWarningSeconds * 1000
 return 
 
 SaveSettings:
@@ -249,6 +287,7 @@ for k, varName in StrSplit("EnableMonitorStandby|MonOffMins|EnableScreenSaver|Sa
 if RunOnStartUp
 	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor, %A_ScriptFullPath%
 else RegDelete, HKEY_CURRENT_USER, Software\Microsoft\Windows\CurrentVersion\Run, SleepyMonitor
+Gosub, calculateVars
 return 
 
 
