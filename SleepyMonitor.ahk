@@ -1,10 +1,10 @@
 #SingleInstance force
 #Persistent
 SetWorkingDir %A_ScriptDir%
-version := "1.01"
+version := "1.02"
 
 global isMonitorOn := True ; on
-global newGUID:= ""
+global newGUID := ""
 
 FileCreateDir, %A_Temp%\SleepyMonitor 
 FileInstall, Resources\Sleep.ico, %A_Temp%\SleepyMonitor\Sleep.ico, 1
@@ -17,6 +17,7 @@ if a_OSVersion in WIN_8,WIN_8.1,WIN_10
 else dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON := "02731015-4510-4526-99e6-e5a17ebd1aea", "Ptr", &newGUID)
 rhandle := dllCall("RegisterPowerSettingNotification", "Ptr", A_scriptHwnd, "Str", strGet(&newGUID), "UInt", 0, "Ptr")
 onMessage(0x218, "WM_POWERBROADCAST")
+
 
 gosub, ReadSettings
 SetTimer, IdleCheck, 4000
@@ -50,6 +51,8 @@ Menu, Tray, Tip, SleepyMonitor
 
 enableScreenSaver_TT := "Enables the screen saver.`nIt starts after the specified delay."
 saverMins_TT := SaverMinsEditDummy_TT := "The screen saver will start once the user has been idle for this period of time."
+UseSystemScreenSaver_TT := "Uses the screen saver specified in control panel / Windows settings."
+ScreenSaverFile_TT := "Screen savers from:`n" A_Tab A_WinDir "\`n" A_Tab A_WinDir "\System32\`n" A_Tab A_ScriptDir "\Screensavers\"
 preWarning_TT := "A system alert sound is made before starting the screen saver or placing the monitor into standby.`nNote: No sound is made if the screen saver is already running."
 preWarningSeconds_TT := PreWarningSecondsEditDummy_TT := "The alert will sound this many seconds before the screen saver starts or before the monitor is placed into standby."
 enableMonitorStandby_TT := "Allows the monitor to be put into low-power/standby mode."
@@ -66,6 +69,9 @@ IdleCheck:
 if !isMonitorOn
 	return 
 
+; if 'none' is selected as screen saver in windows options, then startScreenSaver() doesn't load anything 
+; and isScreenSaverRunning()  returns false 
+
 if (enableScreenSaver)
 {
 	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning())
@@ -75,8 +81,8 @@ if (enableScreenSaver)
 	}
 
 	if (A_TimeIdle >= saverMS && !isScreenSaverRunning())
-	{
-		startScreenSaver()
+	{	
+		startSleepyScreenSaver(useSystemScreenSaver, screenSaverFile)
 		sleep 5000 ; ensure screen saver has started before next idleCheck run - prevents second warning
 	}
 }
@@ -89,6 +95,7 @@ if (enableMonitorStandby)
 		if waitForInput(preWarningSeconds + .250)
 			return
 	}
+
 	if (A_TimeIdle >= monOffMS)
 	{
 		monitorStandby()
@@ -97,7 +104,8 @@ if (enableMonitorStandby)
 }
 return 
 
-waitForInput(timeOut)
+
+waitForInput(timeOutSeconds)
 {
 	startIdle := A_TimeIdle
 	soundplay *-1
@@ -106,7 +114,7 @@ waitForInput(timeOut)
 		if (A_TimeIdle < startIdle)
 			return true
 		sleep 200
-	} until (A_TimeIdle - startIdle >= timeOut * 1000)	
+	} until (A_TimeIdle - startIdle >= timeOutSeconds * 1000)	
 	return false
 }
 
@@ -114,22 +122,12 @@ waitForInput(timeOut)
 LaunchScreenSaver:
 MonitorStandby:
 sleep 2000
-(A_ThisLabel = "LaunchScreenSaver") ? startScreenSaver() : monitorStandby()
+(A_ThisLabel = "LaunchScreenSaver") ? startSleepyScreenSaver(useSystemScreenSaver, screenSaverFile) : monitorStandby()
 return 
-
-; returns true if still idle
-warnCheckIsIdle(preWarningSeconds, idleThreashold)
-{
-	soundplay *-1
-	sleep % preWarningSeconds * 1000 + 250
-	return (A_TimeIdle / 60 / 1000 >= idleThreashold)
-}
-
 
 DisableUntilAppRestart:
 
 ; isDisabledUntilRestart is true when a checkmark is on this menu item 
-
 
 if isDisabledUntilRestart := !isDisabledUntilRestart
 {
@@ -158,7 +156,7 @@ DisableForHours004:
 DisableForHours006:
 
 ; disabledMenuLabelClicked is true (will hold the label name) 
-; when ever a checkmark is applied to these menu items
+; whenever a checkmark is applied to these menu items
 
 ; If clicked item was previously clicked (and it hasn't expired)
 ; re-enable monitoring and remove checkmark
@@ -206,15 +204,19 @@ IfWinExist
 	Return 									
 }
 
-Gui, Add, GroupBox,  y+20 w300 h60 section, Screen Saver 
+Gui, Add, GroupBox,  y+20 w300 h135 section, Screen Saver 
 Gui, Add, Checkbox, xs+15 yp+25 vEnableScreenSaver Checked%enableScreenSaver% gGUIControlHandler, Enable
-
 			
 Gui, Add, Text, xs+170 ys+25, Delay Mins:
 Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vSaverMinsEditDummy Disabled" !enableScreenSaver 
 Gui, Add, UpDown,  Range1-1000 vSaverMins, %saverMins%	
 
+Gui, Add, Checkbox, xs+15 yp+35 vUseSystemScreenSaver Checked%useSystemScreenSaver% gGUIControlHandler, System screen saver
 
+; don't sort them as their order must match that of the object (in case two files have different paths, but same file name)
+Gui, Add, DropDownList, xs+150 yp w140 AltSubmit vScreenSaverFile Disabled%useSystemScreenSaver%, % getScreenSavers(screenSaverFile, aScreenSavers)
+Gui, add, button, xp+50 y+15 w90 h25 gConfigureScreenSaver Disabled%UseSystemScreenSaver% vConfigButtonDummy, Config
+Gui, add, button, xs+15 yp w90 h25 gTestScreenSaver, Test
 
 Gui, Add, GroupBox, xs  y+35 w300 h60 section, Screen Standby
 Gui, Add, Checkbox, xs+15 yp+25 vEnableMonitorStandby Checked%enableMonitorStandby% gGUIControlHandler, Enable
@@ -222,11 +224,13 @@ Gui, Add, Text, xs+170 ys+25, Delay Mins:
 Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vMonOffMinsEditDummy Disabled" !enableMonitorStandby
 Gui, Add, UpDown,  Range1-1000 vMonOffMins, %monOffMins%	
 
+
 Gui, Add, GroupBox, xs  y+35 w300 h60 section, Warning
 Gui, Add, Checkbox, % "xs+15 yp+25 vPreWarning Checked" preWarning " gGUIControlHandler Disabled" (!enableScreenSaver && !enableMonitorStandby), Enable warning
 Gui, Add, Text, xs+170 yp, Delay Secs:
 Gui, Add, Edit, % "Number Right x+15 yp-2 w45 vPreWarningSecondsEditDummy Disabled" (!preWarning || (!enableScreenSaver && !enableMonitorStandby))
 Gui, Add, UpDown,  Range1-1000 vPreWarningSeconds, %preWarningSeconds%
+
 
 Gui, Add, GroupBox, xs  y+35 w300 h55 section, Misc
 Gui, Add, Checkbox, xs+15 yp+25 vRunOnStartUp Checked%RunOnStartUp%, Run on startup
@@ -234,19 +238,29 @@ Gui, add, button, xs ys+85 w54 h25 gSaveSettings, Save
 Gui, add, button, x+40 yp w54 h25 gGUIClose, Cancel
 Gui, Add, text, x+100 yp+12, Ver: %version%
 OnMessage(0x200, "OptionsGUITooltips")
-Gui, Show, w320 h385
+Gui, Show, w320 h455
 return
 
 GUIControlHandler:
 GuiControlGet, screenSaverChecked,, enableScreenSaver 
 GuiControlGet, monitorStandbyChecked,, enableMonitorStandby 
 GuiControlGet, preWarningChecked,, preWarning 
+GuiControlGet, useSystemScreenSaverChecked,, useSystemScreenSaver 
 GuiControl, % "Disable" !screenSaverChecked, SaverMinsEditDummy
+GuiControl, % "Disable" useSystemScreenSaverChecked, ScreenSaverFile
 GuiControl, % "Disable" !(screenSaverChecked || monitorStandbyChecked), PreWarning
 GuiControl, % "Disable" !(preWarningChecked && (screenSaverChecked || monitorStandbyChecked)), PreWarningSecondsEditDummy
+GuiControl, % "Disable" useSystemScreenSaverChecked, ConfigButtonDummy
 
 GuiControlGet, monitorStandbyChecked,, enableMonitorStandby 
 GuiControl, % "Disable" !monitorStandbyChecked, MonOffMinsEditDummy
+return 
+
+ConfigureScreenSaver:
+TestScreenSaver:
+GuiControlGet, index,, screenSaverFile
+GuiControlGet, useSystemScreenSaverChecked,, useSystemScreenSaver 
+startSleepyScreenSaver(useSystemScreenSaverChecked, aScreenSavers[index], A_ThisLabel = "ConfigureScreenSaver")
 return 
 
 
@@ -263,6 +277,10 @@ RegRead, enableScreenSaver, HKEY_CURRENT_USER, Software\SleepyMonitor, EnableScr
 enableScreenSaver := (ErrorLevel ? False : enableScreenSaver)
 RegRead, saverMins, HKEY_CURRENT_USER, Software\SleepyMonitor, SaverMins
 saverMins := (ErrorLevel ? 15 : saverMins)
+RegRead, useSystemScreenSaver, HKEY_CURRENT_USER, Software\SleepyMonitor, UseSystemScreenSaver
+useSystemScreenSaver := (ErrorLevel ? true : useSystemScreenSaver)
+RegRead, screenSaverFile, HKEY_CURRENT_USER, Software\SleepyMonitor, screenSaverFile
+screenSaverFile := (ErrorLevel ? "" : screenSaverFile)
 RegRead, preWarning, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarning
 preWarning := (ErrorLevel ? False : preWarning)
 RegRead, preWarningSeconds, HKEY_CURRENT_USER, Software\SleepyMonitor, PreWarningSeconds
@@ -281,7 +299,8 @@ SaveSettings:
 GUI, Submit
 GUI, Destroy
 
-for k, varName in StrSplit("EnableMonitorStandby|MonOffMins|EnableScreenSaver|SaverMins|PreWarning|PreWarningSeconds", "|")
+ScreenSaverFile := aScreenSavers[ScreenSaverFile]
+for k, varName in StrSplit("EnableMonitorStandby|MonOffMins|UseSystemScreenSaver|screenSaverFile|EnableScreenSaver|SaverMins|PreWarning|PreWarningSeconds", "|")
 	RegWrite, REG_SZ, HKEY_CURRENT_USER, Software\SleepyMonitor, %varName%, % %varName%
 
 if RunOnStartUp
@@ -292,20 +311,94 @@ return
 
 
 
+; cos of 32 / 64 bit emulation of system32 folder (redirection to wow folder)
 
 
-/*
-	BOOL SystemParametersInfoA(
-	  UINT  uiAction,
-	  UINT  uiParam,
-	  PVOID pvParam,
-	  UINT  fWinIni
-	);
-*/
-startScreenSaver()
+getScreenSavers(currentScreenSaverPath := "", byref aScreenSavers := "")
+{
+	aScreenSavers := []
+
+	loop, %A_WinDir%\*.scr 
+	{
+		aScreenSavers.insert(A_LoopFileLongPath)
+		guiDDLString .= A_LoopFileName (A_LoopFileLongPath = currentScreenSaverPath ? "||" : "|")
+	}
+
+	if (isWow64 := isWow64Process())
+		prevWowValue := disableWow64FsRedirection()
+
+	loop, %A_WinDir%\System32\*.scr 
+	{
+		aScreenSavers.insert(A_LoopFileLongPath)
+		guiDDLString .= A_LoopFileName (A_LoopFileLongPath = currentScreenSaverPath ? "||" : "|")
+
+	}
+
+	if isWow64
+		revertWow64FsRedirection(prevWowValue)
+
+	loop, %A_ScriptDir%\Screensavers\*.scr 
+	{
+		aScreenSavers.insert(A_LoopFileLongPath)
+		guiDDLString .= A_LoopFileName (A_LoopFileLongPath = currentScreenSaverPath ? "||" : "|")
+
+	}
+
+	if substr(guiDDLString, -1) != "||" ; -1 extracts last 2 characters
+		guiDDLString := SubStr(guiDDLString, 1, -1)
+	return guiDDLString
+}	
+
+isWow64Process()
+{
+	DllCall("IsWow64Process", "Ptr", DllCall("GetCurrentProcess", "Ptr"), "Int*", Wow64Process)
+	return Wow64Process
+}
+
+disableWow64FsRedirection(byref result := "")
+{
+	DllCall("Wow64DisableWow64FsRedirection", "Ptr*", prevWowValue)
+	return prevWowValue
+}
+
+revertWow64FsRedirection(prevWowValue)
+{
+	return DllCall("Wow64RevertWow64FsRedirection", "Ptr*", prevWowValue)
+}
+
+
+
+
+; /c - Show the screensaver configuration dialog box
+;/ s - Show the screensaver full-screen 
+
+startSleepyScreenSaver(useSystemScreenSaver, screenSaverFilePath, config := false)
+{
+	if !useSystemScreenSaver
+	{
+		if InStr(screenSaverFilePath, A_WinDir "\System32\") && isWow64Process()
+			prevWowValue := disableWow64FsRedirection()
+		if FileExist(screenSaverFilePath)
+			run, % screenSaverFilePath (config ? " /c" : " /s")
+		else fileNotFound := true 
+		if prevWowValue
+			revertWow64FsRedirection(prevWowValue)
+		if !fileNotFound || config
+			return 
+	}
+	; useSystemScreenSaver or fileNotFound (backup)
+	startSystemScreenSaver()
+	return 
+}
+
+
+
+startSystemScreenSaver()
 {
 	PostMessage, % WM_SYSCOMMAND := 0x0112, % SC_SCREENSAVE := 0xF140,,, % "ahk_id "  (HWND_BROADCAST := 0xFFFF)
 }
+
+
 
 ; If monitor is in standby/off returns false
 isScreenSaverRunning()
