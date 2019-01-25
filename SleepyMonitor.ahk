@@ -1,7 +1,7 @@
 #SingleInstance force
 #Persistent
 SetWorkingDir %A_ScriptDir%
-version := "1.02"
+version := "1.03"
 
 global isMonitorOn := True ; on
 global newGUID := ""
@@ -74,13 +74,13 @@ if !isMonitorOn
 
 if (enableScreenSaver)
 {
-	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning())
+	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning(useSystemScreenSaver, screenSaverFile))
 	{
 		if waitForInput(preWarningSeconds + .250)
 			return
 	}
 
-	if (A_TimeIdle >= saverMS && !isScreenSaverRunning())
+	if (A_TimeIdle >= saverMS && !isScreenSaverRunning(useSystemScreenSaver, screenSaverFile))
 	{	
 		startSleepyScreenSaver(useSystemScreenSaver, screenSaverFile)
 		sleep 5000 ; ensure screen saver has started before next idleCheck run - prevents second warning
@@ -90,7 +90,7 @@ if (enableScreenSaver)
 
 if (enableMonitorStandby)
 {
-	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning())
+	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning(useSystemScreenSaver, screenSaverFile))
 	{
 		if waitForInput(preWarningSeconds + .250)
 			return
@@ -331,7 +331,6 @@ getScreenSavers(currentScreenSaverPath := "", byref aScreenSavers := "")
 	{
 		aScreenSavers.insert(A_LoopFileLongPath)
 		guiDDLString .= A_LoopFileName (A_LoopFileLongPath = currentScreenSaverPath ? "||" : "|")
-
 	}
 
 	if isWow64
@@ -341,7 +340,6 @@ getScreenSavers(currentScreenSaverPath := "", byref aScreenSavers := "")
 	{
 		aScreenSavers.insert(A_LoopFileLongPath)
 		guiDDLString .= A_LoopFileName (A_LoopFileLongPath = currentScreenSaverPath ? "||" : "|")
-
 	}
 
 	if substr(guiDDLString, -1) != "||" ; -1 extracts last 2 characters
@@ -367,8 +365,6 @@ revertWow64FsRedirection(prevWowValue)
 }
 
 
-
-
 ; /c - Show the screensaver configuration dialog box
 ;/ s - Show the screensaver full-screen 
 
@@ -391,7 +387,23 @@ startSleepyScreenSaver(useSystemScreenSaver, screenSaverFilePath, config := fals
 	return 
 }
 
+isScreenSaverRunning(isUsingSystemSystemScreenSaver, screenSaverFilePath)
+{
+	if isUsingSystemSystemScreenSaver
+		return isSystemScreenSaverRunning()
 
+	SplitPath, screenSaverFilePath, fileName
+	Process, Exist, %fileName%
+	return ErrorLevel
+}
+
+; If monitor is in standby/off returns false
+; Only works if startSystemScreenSaver() is used to start screen saver
+; not if the .scr file is launched via this script
+isSystemScreenSaverRunning()
+{
+	return result, DllCall("SystemParametersInfo", "UInt", SPI_GETSCREENSAVERRUNNING := 0x0072, "UInt", 0, "UInt*", result, "UInt", 0)
+}
 
 startSystemScreenSaver()
 {
@@ -400,11 +412,6 @@ startSystemScreenSaver()
 
 
 
-; If monitor is in standby/off returns false
-isScreenSaverRunning()
-{
-	return result, DllCall("SystemParametersInfo", "UInt", SPI_GETSCREENSAVERRUNNING := 0x0072, "UInt", 0, "UInt*", result, "UInt", 0)
-}
 
 /*
 	SC_MONITORPOWER		0xF170
