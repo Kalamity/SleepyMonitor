@@ -1,7 +1,7 @@
 #SingleInstance force
 #Persistent
 SetWorkingDir %A_ScriptDir%
-version := "1.05"
+version := "1.06"
 
 global isMonitorOn := True ; on
 global newGUID := ""
@@ -66,6 +66,15 @@ dllCall("UnregisterPowerSettingNotification", "Ptr", rhandle)
 ExitApp
 return 
 
+
+debug:
+s := "isMonitorOn: " isMonitorOn "`n"
+	. "Idle s: " A_TimeIdle / 1000 "`n"
+	. "preWarning && A_TimeIdle >= saverWarningMS: " (preWarning && A_TimeIdle >= saverWarningMS ) "`n"
+  	. "isScreenSaverRunning(useSystemScreenSaver, aLastLaunchedSaver): " isScreenSaverRunning()
+  ToolTip, % s
+ return 
+
 IdleCheck:
 
 if !isMonitorOn
@@ -73,19 +82,23 @@ if !isMonitorOn
 
 ; if 'none' is selected as screen saver in windows options, then startScreenSaver() doesn't load anything 
 ; and isScreenSaverRunning()  returns false 
-thread, NoTimers, true ; needed. Else new thread can run while in waitForInput, causing multiple warnings to sound
+;thread, NoTimers, true 
 if (enableScreenSaver)
 {
-	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning(useSystemScreenSaver, aLastLaunchedSaver))
+	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning())
 	{
 		if waitForInput(preWarningSeconds + .250)
 			return
 	}
 
-	if (A_TimeIdle >= saverMS) && (!isScreenSaverRunning(useSystemScreenSaver, aLastLaunchedSaver) || (enableCycleScreenSavers && A_TickCount - screenSaverStart >= cycleMS))
-	{		
-		Random, index, % aEnabledScreenSaverPaths.MinIndex(), % aEnabledScreenSaverPaths.MaxIndex()
+	if (A_TimeIdle >= saverMS) && (!isScreenSaverRunning() || (enableCycleScreenSavers && A_TickCount - screenSaverStart >= cycleMS))
+	{	
+		loop
+		{ 	
+			Random, index, % aEnabledScreenSaverPaths.MinIndex(), % aEnabledScreenSaverPaths.MaxIndex()
+		} until (aLastLaunchedSaver != aEnabledScreenSaverPaths[index]) || aEnabledScreenSaverPaths.MaxIndex() <= 1 ; <= 1 as could be 0...in which case start sys screensaver
 		aLastLaunchedSaver := aEnabledScreenSaverPaths[index]
+
 		screenSaverStart := A_TickCount
 		startSleepyScreenSaver(useSystemScreenSaver, aLastLaunchedSaver)
 		sleep 5000 ; ensure screen saver has started before next idleCheck run - prevents second warning
@@ -95,7 +108,7 @@ if (enableScreenSaver)
 
 if (enableMonitorStandby)
 {
-	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning(useSystemScreenSaver, aLastLaunchedSaver))
+	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning())
 	{
 		if waitForInput(preWarningSeconds + .250)
 			return
@@ -109,6 +122,14 @@ if (enableMonitorStandby)
 }
 return 
 
+debug()
+{
+	global 
+	g_debug .= isScreenSaverRunning()
+			. "`n" aLastLaunchedSaver
+			. "`n" g_debugPos
+			. "`n==============`n"
+}
 
 waitForInput(timeOutSeconds)
 {
@@ -329,8 +350,9 @@ monOffMS := monOffMins * 60 * 1000
 monOffWarningMS := monOffMS - preWarningSeconds * 1000
 cycleMS := CycleMins * 60 * 1000
 
-;saverMS := 10 *1000
-;cycleMS := 10 *1000
+; saverMS := 10 *1000
+; cycleMS := 10 *1000
+; saverWarningMS := saverMS - preWarningSeconds * 1000
 return 
 
 SaveSettings:
@@ -423,17 +445,18 @@ startSleepyScreenSaver(useSystemScreenSaver, screenSaverFilePath, config := fals
 	return 
 }
 
-isScreenSaverRunning(isUsingSystemSystemScreenSaver, screenSaverFilePath)
+FileExistWOW64(file)
 {
-	;if isUsingSystemSystemScreenSaver
-	if isSystemScreenSaverRunning() ; always check - in case OS started its own screenSaver
-		return true
+		if InStr(file, A_WinDir "\System32\") && isWow64Process()
+			prevWowValue := disableWow64FsRedirection()
+		return FileExist(file), prevWowValue ? revertWow64FsRedirection(prevWowValue) : ""
+			
+}
 
-	if !FileExist(screenSaverFilePath)
-		return false  ; if passed a blank parameter (otherwise process returns scripts own pid)
-	SplitPath, screenSaverFilePath, fileName
-	Process, Exist, %fileName%
-	return ErrorLevel
+isScreenSaverRunning()
+{
+	; always check  isUsingSystemSystemScreenSaver() - in case OS started its own screenSaver
+	return isSystemScreenSaverRunning() || InStr(proccessList(), ".scr|")
 }
 
 ; If monitor is in standby/off returns false
@@ -516,4 +539,53 @@ OptionsGUITooltips()
     RemoveToolTip:
     ToolTip
     return
+}
+
+proccessList(byref count := "")
+{
+	; Example #4: Retrieves a list of running processes via DllCall then shows them in a MsgBox.
+
+	d := "|"  ; string separator
+	s := 4096  ; size of buffers and arrays (4 KB)
+
+	Process, Exist  ; sets ErrorLevel to the PID of this running script
+	; Get the handle of this script with PROCESS_QUERY_INFORMATION (0x0400)
+	h := DllCall("OpenProcess", "UInt", 0x0400, "Int", false, "UInt", ErrorLevel, "Ptr")
+	; Open an adjustable access token with this process (TOKEN_ADJUST_PRIVILEGES = 32)
+	DllCall("Advapi32.dll\OpenProcessToken", "Ptr", h, "UInt", 32, "PtrP", t)
+	VarSetCapacity(ti, 16, 0)  ; structure of privileges
+	NumPut(1, ti, 0, "UInt")  ; one entry in the privileges array...
+	; Retrieves the locally unique identifier of the debug privilege:
+	DllCall("Advapi32.dll\LookupPrivilegeValue", "Ptr", 0, "Str", "SeDebugPrivilege", "Int64P", luid)
+	NumPut(luid, ti, 4, "Int64")
+	NumPut(2, ti, 12, "UInt")  ; enable this privilege: SE_PRIVILEGE_ENABLED = 2
+	; Update the privileges of this process with the new access token:
+	r := DllCall("Advapi32.dll\AdjustTokenPrivileges", "Ptr", t, "Int", false, "Ptr", &ti, "UInt", 0, "Ptr", 0, "Ptr", 0)
+	DllCall("CloseHandle", "Ptr", t)  ; close this access token handle to save memory
+	DllCall("CloseHandle", "Ptr", h)  ; close this process handle to save memory
+
+	hModule := DllCall("LoadLibrary", "Str", "Psapi.dll")  ; increase performance by preloading the library
+	s := VarSetCapacity(a, s)  ; an array that receives the list of process identifiers:
+	c := 0  ; counter for process idendifiers
+	DllCall("Psapi.dll\EnumProcesses", "Ptr", &a, "UInt", s, "UIntP", r)
+	Loop, % r // 4  ; parse array for identifiers as DWORDs (32 bits):
+	{
+	   id := NumGet(a, A_Index * 4, "UInt")
+	   ; Open process with: PROCESS_VM_READ (0x0010) | PROCESS_QUERY_INFORMATION (0x0400)
+	   h := DllCall("OpenProcess", "UInt", 0x0010 | 0x0400, "Int", false, "UInt", id, "Ptr")
+	   if !h
+	      continue
+	   VarSetCapacity(n, s, 0)  ; a buffer that receives the base name of the module:
+	   e := DllCall("Psapi.dll\GetModuleBaseName", "Ptr", h, "Ptr", 0, "Str", n, "UInt", A_IsUnicode ? s//2 : s)
+	   if !e    ; fall-back method for 64-bit processes when in 32-bit mode:
+	      if e := DllCall("Psapi.dll\GetProcessImageFileName", "Ptr", h, "Str", n, "UInt", A_IsUnicode ? s//2 : s)
+	         SplitPath n, n
+	   DllCall("CloseHandle", "Ptr", h)  ; close process handle to save memory
+	   if (n && e)  ; if image is not null add to list:
+	      l .= n . d, c++
+	}
+	DllCall("FreeLibrary", "Ptr", hModule)  ; unload the library to free memory
+	;Sort, l, C  ; uncomment this line to sort the list alphabetically
+	count := c
+	return l
 }
