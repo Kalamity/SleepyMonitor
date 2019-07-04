@@ -1,10 +1,14 @@
 #SingleInstance force
 #Persistent
 SetWorkingDir %A_ScriptDir%
-version := "1.06"
 
+version := "1.07"
+
+
+Process, Priority,, Low
 global isMonitorOn := True ; on
 global newGUID := ""
+idleCheckTime := 2000
 
 FileCreateDir, %A_Temp%\SleepyMonitor 
 FileInstall, Resources\Sleep.ico, %A_Temp%\SleepyMonitor\Sleep.ico, 1
@@ -18,9 +22,8 @@ else dllCall("Rpcrt4\UuidFromString", "Str", GUID_MONITOR_POWER_ON := "02731015-
 rhandle := dllCall("RegisterPowerSettingNotification", "Ptr", A_scriptHwnd, "Str", strGet(&newGUID), "UInt", 0, "Ptr")
 onMessage(0x218, "WM_POWERBROADCAST")
 
-
 gosub, ReadSettings
-SetTimer, IdleCheck, 4000
+SetTimer, IdleCheck, %idleCheckTime%
 
 Menu, tray, NoStandard
 Menu, tray, add  ; Creates a separator line.
@@ -66,7 +69,6 @@ dllCall("UnregisterPowerSettingNotification", "Ptr", rhandle)
 ExitApp
 return 
 
-
 debug:
 s := "isMonitorOn: " isMonitorOn "`n"
 	. "Idle s: " A_TimeIdle / 1000 "`n"
@@ -75,52 +77,50 @@ s := "isMonitorOn: " isMonitorOn "`n"
   ToolTip, % s
  return 
 
-IdleCheck:
 
+IdleCheck:
 if !isMonitorOn
 	return 
 
-; if 'none' is selected as screen saver in windows options, then startScreenSaver() doesn't load anything 
-; and isScreenSaverRunning()  returns false 
-;thread, NoTimers, true 
+if (A_TimeIdle < prevIdle)
+	hasWarned := false 
+prevIdle := A_TimeIdle
+
 if (enableScreenSaver)
 {
-	if (preWarning && A_TimeIdle >= saverWarningMS && !isScreenSaverRunning())
+	if (preWarning && A_TimeIdle >= saverWarningMS && !hasWarned && !isScreenSaverRunning())
 	{
-		if waitForInput(preWarningSeconds + .250)
-			return
-	}
-
-	if (A_TimeIdle >= saverMS) && (!isScreenSaverRunning() || (enableCycleScreenSavers && A_TickCount - screenSaverStart >= cycleMS))
-	{	
+		hasWarned := true
+		SoundPlay, *-1
+		return 
+	}	
+	else if (A_TimeIdle >= saverMS) && (!isScreenSaverRunning() || (enableCycleScreenSavers && A_TickCount - screenSaverLaucnedAt >= cycleMS))
+	{
 		loop
 		{ 	
-			Random, index, % aEnabledScreenSaverPaths.MinIndex(), % aEnabledScreenSaverPaths.MaxIndex()
-		} until (aLastLaunchedSaver != aEnabledScreenSaverPaths[index]) || aEnabledScreenSaverPaths.MaxIndex() <= 1 ; <= 1 as could be 0...in which case start sys screensaver
-		aLastLaunchedSaver := aEnabledScreenSaverPaths[index]
-
-		screenSaverStart := A_TickCount
-		startSleepyScreenSaver(useSystemScreenSaver, aLastLaunchedSaver)
-		sleep 5000 ; ensure screen saver has started before next idleCheck run - prevents second warning
+			nextScreenSaver := randomArrayItem(aEnabledScreenSaverPaths)
+		} until (aLastLaunchedSaver != nextScreenSaver) || aEnabledScreenSaverPaths.MaxIndex() <= 1 ; <= 1 as could be 0...in which case start sys screensaver
+		screenSaverLaucnedAt := A_TickCount
+		startSleepyScreenSaver(useSystemScreenSaver, aLastLaunchedSaver := nextScreenSaver)
 	}
 }
-
 
 if (enableMonitorStandby)
 {
-	if (preWarning && A_TimeIdle >= monOffWarningMS && !isScreenSaverRunning())
+	if (preWarning && A_TimeIdle >= monOffWarningMS && !hasWarned && !isScreenSaverRunning())
 	{
-		if waitForInput(preWarningSeconds + .250)
-			return
-	}
-
-	if (A_TimeIdle >= monOffMS)
+		hasWarned := true
+		SoundPlay, *-1
+		return 
+	}	
+	else if (A_TimeIdle >= monOffMS)
 	{
 		monitorStandby()
-		sleep 5000
-	}
+		return 
+	}	
 }
-return 
+
+return
 
 debug()
 {
@@ -131,24 +131,12 @@ debug()
 			. "`n==============`n"
 }
 
-waitForInput(timeOutSeconds)
-{
-	startIdle := A_TimeIdle
-	soundplay *-1
-	loop 
-	{
-		if (A_TimeIdle < startIdle)
-			return true
-		sleep 200
-	} until (A_TimeIdle - startIdle >= timeOutSeconds * 1000)	
-	return false
-}
-
-
 LaunchScreenSaver:
 MonitorStandby:
 sleep 2000
-(A_ThisLabel = "LaunchScreenSaver") ? startSleepyScreenSaver(useSystemScreenSaver, screenSaverFile) : monitorStandby()
+if (A_ThisLabel = "LaunchScreenSaver")
+	startSleepyScreenSaver(useSystemScreenSaver, randomArrayItem(aEnabledScreenSaverPaths)) 
+else monitorStandby()
 return 
 
 DisableUntilAppRestart:
@@ -211,7 +199,7 @@ if aMenuName.HasKey(disabledMenuLabelClicked)
 	Menu, DisableSubMenu, Uncheck, % aMenuName[disabledMenuLabelClicked]
 Menu, DisableSubMenu, Uncheck, Until Restart
 disabledMenuLabelClicked := ""
-SetTimer, IdleCheck, 5000
+SetTimer, IdleCheck, %idleCheckTime%
 SetTimer, UpdateTimeRemaing, Off
 Menu, Tray, Tip, SleepyMonitor
 Menu, Tray, Icon, %A_Temp%\SleepyMonitor\Sleep.ico, 1, 1
@@ -350,9 +338,12 @@ monOffMS := monOffMins * 60 * 1000
 monOffWarningMS := monOffMS - preWarningSeconds * 1000
 cycleMS := CycleMins * 60 * 1000
 
-; saverMS := 10 *1000
-; cycleMS := 10 *1000
-; saverWarningMS := saverMS - preWarningSeconds * 1000
+;preWarningSeconds := 5
+;saverMS := 10 *1000
+;cycleMS := 3 *1000
+;monOffMS := 30 * 1000
+;monOffWarningMS := monOffMS - preWarningSeconds * 1000
+;saverWarningMS := saverMS - preWarningSeconds * 1000
 return 
 
 SaveSettings:
@@ -513,6 +504,11 @@ WM_POWERBROADCAST(wParam, lParam)
     return true 
 }
 
+randomArrayItem(array)
+{
+	random, i, % array.MinIndex(), % array.MaxIndex()
+	return array[i]
+}
 
 OptionsGUITooltips()
 {
